@@ -1,74 +1,95 @@
+##
+##  Predictive Routing
+##  routing_io.py
+##
+##  Created by Justin Fung on 10/22/17.
+##  Copyright 2017 Justin Fung. All rights reserved.
+##
+## ====================================================================
+# pylint: disable=bad-indentation,bad-continuation,multiple-statements
+# pylint: disable=invalid-name
 
 """
+Module for converting an external directory of GPX files to a pandas
+dataframe for preprocessing and model training.
 
-
-DOCS:
-  https://ocefpaf.github.io/python4oceanographers/blog/2015/08/03/fiona_gpx/
+Usage:
+  Please see the README for how to compile the program and run the model.
 """
+
 from datetime import datetime
+import math
 import os
 import re
 
+import xml.etree.ElementTree as ET
+import fiona
 import pandas as pd
 import geopandas as gpd
 from geopandas.tools import sjoin
-
-import fiona
-import xml.etree.ElementTree as ET
-
 from shapely.geometry import Point
 
 
-hubs_shp_file = os.path.join(os.getcwd(),"data","hubs.shp")
-system_shp_file = os.path.join(os.getcwd(), "data", "system.shp")
+## ====================================================================
+
 
 routes_directory = os.path.join(os.getcwd(), "routes")
 
+hubs_shp_file = os.path.join(os.getcwd(), "data", "hubs.shp")
+system_shp_file = os.path.join(os.getcwd(), "data", "system.shp")
+bizdist_shp_file = os.path.join(os.getcwd(), "data", "business_districts.shp")
 
-def convert_time(time_string):
-  """
-  """
 
-  # 
-  pass
+## ====================================================================
 
 
 def get_region(point, mesh, crs):
   """
-  point
+  Spatial-joins a lat/lon coordinate in CRS 4326 to a polygon mesh of
+  the same coordinate system.
+
+  Args:
+    point: (longitude, lattitude) as a tuple
+    mesh: mesh as a GeoPandas DataFrame
+    crs: coordinate system to use
+
+  Returns:
+    joined_region: region id if join, else -1
   """
+
+  # Create a Shapely Point object.
   point = Point(point[0], point[1])
-  series = gpd.GeoSeries(point, crs=crs, name = "breadcrumb")
+
+  # Convert to a GeoPandas DataFrame and defined the geometery.
+  series = gpd.GeoSeries(point, crs=crs, name="breadcrumb")
   df = gpd.GeoDataFrame().append(series)
   df = df.rename(columns={0: 'geometry'}).set_geometry('geometry')
 
+  # Spatial join the Point DF to the mesh DF.
   region = gpd.sjoin(df, mesh, how="inner", op='intersects')
 
+  # Return the region if spatial join successful, else -1.
   if len(region) > 0:
-    return region.index_right[0]
+    joined_region = region.index_right[0]
   else:
-    return -1
+    joined_region = -1
+
+  return joined_region
 
 
 def calculate_initial_compass_bearing(pointA, pointB):
     """
     Calculates the bearing between two points.
-    The formulae used is the following:
-        θ = atan2(sin(Δlong).cos(lat2),
-                  cos(lat1).sin(lat2) − sin(lat1).cos(lat2).cos(Δlong))
-    :Parameters:
-      - `pointA: The tuple representing the latitude/longitude for the
-        first point. Latitude and longitude must be in decimal degrees
-      - `pointB: The tuple representing the latitude/longitude for the
-        second point. Latitude and longitude must be in decimal degrees
-    :Returns:
-      The bearing in degrees
-    :Returns Type:
-      float
-    """
-    if (type(pointA) != tuple) or (type(pointB) != tuple):
-        raise TypeError("Only tuples are supported as arguments")
 
+    Args:
+      pointA: start point as tuple
+      pointB: end point as tuple
+
+    Returns:
+      compass_bearing: bearing as float between 0 and 360
+    """
+
+    # Calculate initial bearing.
     lat1 = math.radians(pointA[0])
     lat2 = math.radians(pointB[0])
 
@@ -80,9 +101,7 @@ def calculate_initial_compass_bearing(pointA, pointB):
 
     initial_bearing = math.atan2(x, y)
 
-    # Now we have the initial bearing but math.atan2 return values
-    # from -180° to + 180° which is not what we want for a compass bearing
-    # The solution is to normalize the initial bearing as shown below
+    # Normalize the initial bearing and return.
     initial_bearing = math.degrees(initial_bearing)
     compass_bearing = (initial_bearing + 360) % 360
 
@@ -91,27 +110,50 @@ def calculate_initial_compass_bearing(pointA, pointB):
 
 def haversine(lon1, lat1, lon2, lat2):
     """
-    Calculate the great circle distance between two points 
-    on the earth (specified in decimal degrees)
+    Calculate the great circle distance between two points on the earth
+    (specified in decimal degrees).
+
+    Args:
+      lon1: longitude in decimal degrees
+      lat1: lattitude in decimal degrees
+      lon2: longitude in decimal degrees
+      lat2: lattitude in decimal degrees
+
+    Returns:
+      meters: haversine distance as float
     """
+
     # Convert decimal degrees to radians.
     lon1, lat1, lon2, lat2 = map(math.radians, [lon1, lat1, lon2, lat2])
 
     # Apply Haversine formula.
-    dlon = lon2 - lon1 
-    dlat = lat2 - lat1 
-    a = math.sin(dlat/2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon/2)**2
-    c = 2 * math.asin(math.sqrt(a)) 
-    
-    # Radius of earth in kilometers is 6371, convert to meters and return.
+    dlon = lon2 - lon1
+    dlat = lat2 - lat1
+    a = (math.sin(dlat/2)**2 +
+         math.cos(lat1) * math.cos(lat2) * math.sin(dlon/2)**2)
+    c = 2 * math.asin(math.sqrt(a))
+
+    # Radius of earth in km is 6371, convert to meters and return.
     meters = 6371000 * c
+
     return meters
 
 
-def gpx2df(gpx_file, hubs, system):
+def gpx2df(gpx_file, hubs, business_district, system):
   """
-  Returns a pandas dataframe representing a gpx track.
+  Converts one gpx file to a pandas dataframe representing a gpx track.
+
+  Args:
+    gpx_file: path to a gpx file
+    hubs: geopandas dataframe representing bike share hubs
+    business_district: geopandas dataframe representing business
+                       districts
+    system: geopandas dataframe representing bike share system mesh
+
+  Returns:
+    ride_df: geodataframe holding all breadcrumbs and extracted attrs.
   """
+
   # Get the name from the file.
   name = gpx_file.split('.')[0]
   route_id = int(re.search("[0-9]+", name).group(0))
@@ -146,8 +188,12 @@ def gpx2df(gpx_file, hubs, system):
                            float(track_segment[len(track_segment)-1].get('lat'))),
                           hubs, crs)
 
+  # Get business district.
+  business_district = get_region((float(track_segment[len(track_segment)-1].get('lon')),
+                                  float(track_segment[len(track_segment)-1].get('lat'))),
+                                  business_district, crs)
+
   # Init counters and pointers.
-  previous = None
   previous_time_region = None
   previous_physical_region = None
   heading = None
@@ -170,95 +216,79 @@ def gpx2df(gpx_file, hubs, system):
                                bc_pts[0], bc_pts[1])
 
     # Update heading only if rider has moved.
-    if count > 0 and displacement > 20:
+    if count > 0 and displacement > 30:
       heading = calculate_initial_compass_bearing(prev_pts, bc_pts)
 
-    # Init Pandas Series
-    pseries = pd.Series(data = [gpx_file, route_id, start_time, weekday, start_region,
-                                end_region, count, previous_physical_region,
-                                current_region, heading, displacement],
-                        index = ['gpx file', 'route id', 'start_time', 'day_of_week',
-                                 'start_region', 'end_region', 'ride_time',
-                                 'previous_region', 'current_region',
-                                 'heading', 'displacement'])
+    # Init Pandas Series.
+    pseries = pd.Series(data=[gpx_file, route_id, start_time, weekday, start_region,
+                              end_region, count, previous_physical_region,
+                              current_region, heading, displacement],
+                        index=['gpx file', 'route id', 'start_time', 'day_of_week',
+                               'start_region', 'end_region', 'ride_time',
+                               'previous_region', 'current_region',
+                               'heading', 'displacement'])
 
-    # Append Ride to Dataframe  
-    ride_df = ride_df.append(pseries, ignore_index = True)
+    # Append Ride to Dataframe.
+    ride_df = ride_df.append(pseries, ignore_index=True)
 
-    # Update previous breadcrumb
+    # Update previous breadcrumb.
     prev_pts = bc_pts
 
     # Update pointer to last region.
     previous_time_region = current_region
 
-  # Exit
+  # Exit.
   return ride_df
 
 
 def build_X(routes_dir):
+  """
+  Builds a master dataframe to hold geodataframes representing mulitple
+  GPX routes in a route directory.
 
+  Args:
+    routes_dir: directory holding GPX routes
+
+  Returns:
+    X: master geodataframe
+  """
+
+  # Get file names.
   routes = [i for i in os.listdir(routes_dir) if i.startswith('route')]
 
+  # Read in hub, system, business district shapefiles to GeoDataFrames.
   hubs = gpd.read_file(hubs_shp_file)
   system = gpd.read_file(system_shp_file)
+  bizdist = gpd.read_file(bizdist_shp_file)
 
+  # Init empty DF to hold extracts GPX routes.
   X = pd.DataFrame()
 
+  # Loop through the routes and append.
   for i, route in enumerate(routes):
 
-    X = X.append(gpx2df(route, hubs, system))
+    X = X.append(gpx2df(route, hubs, bizdist, system))
     print("==================")
     print("==================")
     print("==================")
-    print("Cleaning route: ", i)
+    print("Cleaned route: ", i)
     print("==================")
     print("==================")
     print("==================")
+
+  # Reset the indexing and return.
+  X = X.reset_index(drop=True)
 
   return X
 
 
-def categorize_variables(dataframe):
+## ====================================================================
+
+
+def main():
   """
+  Builds GeoDataFrame holding extracted GPX routes and returns.
   """
 
-  # Categorize start times.
-  start_time_bins = [0, 5, 11, 16, 21, 24]
-  start_times_labels = ['00:00-5:00', '5:00-11:00', '11:00-16:00',
-                        '16:00-21:00', '21:00-00:00']
-  dataframe['start_times_bins'] = pd.cut(dataframe['start_time'],
-                                         start_time_bins,
-                                         right=False,
-                                         labels=start_times_labels,
-                                         include_lowest=True)
+  return build_X(routes_directory)
 
-  # Categorize Day of the weekday
-  weekend_or_weekday_bins = [0, 5, 7]
-  weekend_or_weekday_labels = ['weekday', 'weekend']
-  dataframe['weekend_or_weekday_bins'] = pd.cut(dataframe['day_of_week'],
-                                                weekend_or_weekday_bins,
-                                                right=False,
-                                                labels=weekend_or_weekday_labels,
-                                                include_lowest=True)
-
-  # Categorize ride time
-  ride_time_bins = [0, 16, 31, 61, 10000]
-  ride_time_labels = ['0-5m', '5-10m', '10-20m', '20m+']
-  dataframe['ride_time_bins'] = pd.cut(dataframe['ride_time'],
-                                       ride_time_bins,
-                                       right=False,
-                                       labels=ride_time_labels,
-                                       include_lowest=True)
-
-  # Categorize Heading
-  dataframe.loc[dataframe.heading < 58, 'heading'] += 360
-  heading_bins = [0, 148, 238, 328, 361+58]
-  heading_labels = ['East', 'South', 'West', 'North']
-  dataframe['heading_bins'] = pd.cut(dataframe['heading'],
-                                     heading_bins,
-                                     right=False,
-                                     labels=heading_labels,
-                                     include_lowest=True)
-
-  # Return DF.
-  return datafram
