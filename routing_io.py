@@ -2,7 +2,7 @@
 ##  Predictive Routing
 ##  routing_io.py
 ##
-##  Created by Justin Fung on 10/22/17.
+##  Created by Justin Fung on 12/10/17.
 ##  Copyright 2017 Justin Fung. All rights reserved.
 ##
 ## ====================================================================
@@ -220,13 +220,14 @@ def gpx2df(gpx_file, hubs, business_district, system):
       heading = calculate_initial_compass_bearing(prev_pts, bc_pts)
 
     # Init Pandas Series.
-    pseries = pd.Series(data=[gpx_file, route_id, start_time, weekday, start_region,
-                              end_region, count, previous_physical_region,
-                              current_region, heading, displacement],
-                        index=['gpx file', 'route id', 'start_time', 'day_of_week',
-                               'start_region', 'end_region', 'ride_time',
-                               'previous_region', 'current_region',
-                               'heading', 'displacement'])
+    pseries = pd.Series(data=[gpx_file, route_id, start_time, weekday,
+                              start_region, end_region, count,
+                              previous_physical_region, current_region, heading,
+                              displacement, business_district],
+                        index=['gpx file', 'route id', 'start_time',
+                               'day_of_week', 'start_region', 'end_region',
+                               'ride_time', 'previous_region', 'current_region',
+                               'heading', 'displacement', 'business district'])
 
     # Append Ride to Dataframe.
     ride_df = ride_df.append(pseries, ignore_index=True)
