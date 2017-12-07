@@ -49,7 +49,7 @@ def get_region(point, mesh, crs):
   the same coordinate system.
 
   Args:
-    point: (longitude, lattitude) as a tuple
+    point: (lat, lon) as a tuple
     mesh: mesh as a GeoPandas DataFrame
     crs: coordinate system to use
 
@@ -58,7 +58,7 @@ def get_region(point, mesh, crs):
   """
 
   # Create a Shapely Point object.
-  point = Point(point[0], point[1])
+  point = Point(point[1], point[0])
 
   # Convert to a GeoPandas DataFrame and defined the geometery.
   series = gpd.GeoSeries(point, crs=crs, name="breadcrumb")
@@ -82,8 +82,8 @@ def calculate_initial_compass_bearing(pointA, pointB):
     Calculates the bearing between two points.
 
     Args:
-      pointA: start point as tuple
-      pointB: end point as tuple
+      pointA: start point as tuple, (lat, lon)
+      pointB: end point as tuple, (lat, lon)
 
     Returns:
       compass_bearing: bearing as float between 0 and 360
@@ -108,7 +108,7 @@ def calculate_initial_compass_bearing(pointA, pointB):
     return compass_bearing
 
 
-def haversine(lon1, lat1, lon2, lat2):
+def haversine(lat1, lon1, lat2, lon2):
     """
     Calculate the great circle distance between two points on the earth
     (specified in decimal degrees).
@@ -158,7 +158,9 @@ def gpx2df(gpx_file, hubs, business_district, system):
   name = gpx_file.split('.')[0]
   route_id = int(re.search("[0-9]+", name).group(0))
 
-  # Read in the gpx file.
+  # Set XML namespaces and read in the gpx file.
+  ET.register_namespace("xsi", "http://www.w3.org/2001/XMLSchema-instance")
+  ET.register_namespace("", "http://www.topografix.com/GPX/1/0")
   gpx_path = os.path.join(os.getcwd(), "routes", gpx_file)
   tree = ET.parse(gpx_path)
 
@@ -166,11 +168,34 @@ def gpx2df(gpx_file, hubs, business_district, system):
   root = tree.getroot()
 
   # Retrieve the start time of the route.
-  dt = root[0].text
-  dt = re.sub("-0[45]{1}:00", "", dt)
+  dt_raw = root[0].text
+  dt = re.sub("-0[45]{1}:00", "", dt_raw)
   dt_obj = datetime.strptime(dt, '%Y-%m-%dT%H:%M:%S')
   start_time = int(dt_obj.strftime('%H'))
   weekday = dt_obj.weekday()
+
+  # Make Zulu time adjustments.
+  if re.search("-04:00", dt_raw):
+    start_time = start_time - 4
+    if start_time < 0:
+      start_time = 24 - abs(start_time)
+      weekday = weekday - 1
+      if weekday < 0:
+        weekday = 6
+
+  if re.search("-05:00", dt_raw):
+    start_time = start_time - 5
+    if start_time < 0:
+      start_time = 24 - abs(start_time)
+      weekday = weekday - 1
+      if weekday < 0:
+        weekday = 6
+
+  # Get bounds.
+  minlat = root[1].get('minlat')
+  minlon = root[1].get('minlon')
+  maxlat = root[1].get('maxlat')
+  maxlon = root[1].get('maxlon')
 
   # Get the track segment from the root.
   track_segment = root[2][0]
@@ -180,17 +205,17 @@ def gpx2df(gpx_file, hubs, business_district, system):
   crs = {'init': 'epsg:4326'}
 
   # Get start hub and end hub.
-  start_region = get_region((float(track_segment[0].get('lon')),
-                             float(track_segment[0].get('lat'))),
+  start_region = get_region((float(track_segment[0].get('lat')),
+                             float(track_segment[0].get('lon'))),
                             hubs, crs)
 
-  end_region = get_region((float(track_segment[len(track_segment)-1].get('lon')),
-                           float(track_segment[len(track_segment)-1].get('lat'))),
+  end_region = get_region((float(track_segment[len(track_segment)-1].get('lat')),
+                           float(track_segment[len(track_segment)-1].get('lon'))),
                           hubs, crs)
 
   # Get business district.
-  business_district = get_region((float(track_segment[len(track_segment)-1].get('lon')),
-                                  float(track_segment[len(track_segment)-1].get('lat'))),
+  business_district = get_region((float(track_segment[len(track_segment)-1].get('lat')),
+                                  float(track_segment[len(track_segment)-1].get('lon'))),
                                   business_district, crs)
 
   # Init counters and pointers.
@@ -198,12 +223,20 @@ def gpx2df(gpx_file, hubs, business_district, system):
   previous_physical_region = None
   heading = None
   displacement = 0
+  prev_pts = (None, None)
 
   # Loop through all points in the track segment.
   for count, breadcrumb in enumerate(track_segment):
 
+    # Get lat and long attributes.
+    lat = float(breadcrumb.get('lat'))
+    lon = float(breadcrumb.get('lon'))
+
+    # Get type.
+    ride_type = breadcrumb[0].text
+
     # Get current region.
-    bc_pts = (float(breadcrumb.get('lon')), float(breadcrumb.get('lat')))
+    bc_pts = (lat, lon)
     current_region = get_region(bc_pts, system, crs)
 
     # Update previous region only if it is different.
@@ -220,14 +253,18 @@ def gpx2df(gpx_file, hubs, business_district, system):
       heading = calculate_initial_compass_bearing(prev_pts, bc_pts)
 
     # Init Pandas Series.
-    pseries = pd.Series(data=[gpx_file, route_id, start_time, weekday,
+    pseries = pd.Series(data=[lat, lon, ride_type, dt_raw,
+                              minlat, minlon, maxlat, maxlon,
+                              gpx_file, route_id, start_time, weekday,
                               start_region, end_region, count,
                               previous_physical_region, current_region, heading,
                               displacement, business_district],
-                        index=['gpx file', 'route id', 'start_time',
+                        index=['lat', 'lon', 'ride_type', 'datetime_raw',
+                               'minlat', 'minlon', 'maxlat', 'maxlon',
+                               'gpx_file', 'route_id', 'start_time',
                                'day_of_week', 'start_region', 'end_region',
                                'ride_time', 'previous_region', 'current_region',
-                               'heading', 'displacement', 'business district'])
+                               'heading', 'displacement', 'business_district'])
 
     # Append Ride to Dataframe.
     ride_df = ride_df.append(pseries, ignore_index=True)
@@ -279,8 +316,12 @@ def build_X(routes_dir):
 
   # Reset the indexing and return.
   X = X.reset_index(drop=True)
+  X['idx'] = range(0, len(X))
 
-  return X
+  # Pickle the result.
+  X.to_pickle('rawdata.pkl')
+
+  return
 
 
 ## ====================================================================
@@ -291,5 +332,12 @@ def main():
   Builds GeoDataFrame holding extracted GPX routes and returns.
   """
 
-  return build_X(routes_directory)
+  # Build Pandas Dataframe.
+  build_X(routes_directory)
+
+  return
+
+
+if __name__ == "__main__":
+  main()
 

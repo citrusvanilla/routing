@@ -19,9 +19,8 @@ Usage:
 """
 
 # Load libraries
+import numpy as np
 import pandas as pd
-from sklearn.cross_validation import train_test_split
-from sklearn import preprocessing
 
 
 ## ====================================================================
@@ -40,9 +39,9 @@ def categorize_variables(dataframe):
 
   # Categorize start times.
   start_time_bins = [0, 5, 11, 16, 21, 24]
-  start_times_labels = ['00:00-5:00', '5:00-11:00', '11:00-16:00',
-                        '16:00-21:00', '21:00-00:00']
-  dataframe['start_times_bins'] = pd.cut(dataframe['start_time'],
+  start_times_labels = ["00:00-5:00", "5:00-11:00", "11:00-16:00",
+                        "16:00-21:00", "21:00-00:00"]
+  dataframe["start_times_bins"] = pd.cut(dataframe["start_time"],
                                          start_time_bins,
                                          right=False,
                                          labels=start_times_labels,
@@ -50,8 +49,8 @@ def categorize_variables(dataframe):
 
   # Categorize weekend or weekday.
   weekend_or_weekday_bins = [0, 5, 7]
-  weekend_or_weekday_labels = ['weekday', 'weekend']
-  dataframe['weekend_or_weekday_bins'] = pd.cut(dataframe['day_of_week'],
+  weekend_or_weekday_labels = ["weekday", "weekend"]
+  dataframe["weekend_or_weekday_bins"] = pd.cut(dataframe["day_of_week"],
                                                 weekend_or_weekday_bins,
                                                 right=False,
                                                 labels=weekend_or_weekday_labels,
@@ -59,25 +58,28 @@ def categorize_variables(dataframe):
 
   # Categorize ride time.
   ride_time_bins = [0, 16, 31, 61, 10000]
-  ride_time_labels = ['0-5m', '5-10m', '10-20m', '20m+']
-  dataframe['ride_time_bins'] = pd.cut(dataframe['ride_time'],
+  ride_time_labels = ["0-5m", "5-10m", "10-20m", "20m+"]
+  dataframe["ride_time_bins"] = pd.cut(dataframe["ride_time"],
                                        ride_time_bins,
                                        right=False,
                                        labels=ride_time_labels,
                                        include_lowest=True)
 
   # Categorize heading.
-  dataframe.loc[dataframe.heading < 58, 'heading'] += 360
+  dataframe.loc[dataframe.heading < 58, "heading"] += 360
   heading_bins = [0, 148, 238, 328, 361+58]
-  heading_labels = ['East', 'South', 'West', 'North']
-  dataframe['heading_bins'] = pd.cut(dataframe['heading'],
+  heading_labels = ["East", "South", "West", "North"]
+  dataframe["heading_bins"] = pd.cut(dataframe["heading"],
                                      heading_bins,
                                      right=False,
                                      labels=heading_labels,
                                      include_lowest=True)
 
   # Return DF.
-  return dataframe
+  return dataframe.drop(["start_time",
+                         "day_of_week",
+                         "ride_time",
+                         "heading"], axis=1)
 
 
 def binarize_features(dataframe):
@@ -97,14 +99,15 @@ def binarize_features(dataframe):
   # Iterate through all columns and expand.
   for col, col_data in dataframe.iteritems():
 
-    col_data = pd.get_dummies(col_data, prefix=col)
+    if col not in  ["idx", "route_id"]:
+      col_data = pd.get_dummies(col_data, prefix=col)
     out_df = out_df.join(col_data)
 
   return out_df
 
 
-def trim_and_split_data(data, test_percentage, unlock_ooh=False, lock_ooh=False):
-  '''Randomly shuffle the sample set.
+def trim_and_split_data(data, holdout_routes, biz_or_hub=0):
+  """Randomly shuffle the sample set.
 
   Args:
     data: pandas DF containing all ride breadcrumbs
@@ -113,45 +116,50 @@ def trim_and_split_data(data, test_percentage, unlock_ooh=False, lock_ooh=False)
     lock_ooh: whether or not to include rides that ended out-of-hub
 
   Returns:
-    X_train:
-    X_test:
-    y_train:
-    y_test:
-  '''
+    X_train: routes for training
+    X_test: routes for testing
+    y_train: labels for training
+    y_test: labels for testing
+  """
 
   # Trim data
-  if unlock_ooh is False:
-    data = data[data.start_region != -1]
-
-  if lock_ooh is False:
+  if biz_or_hub == 0:
+    data = data[data.business_district != -1]
+    training_attrs = ["business_district", "current_region", "day_of_week",
+                      "heading", "previous_region", "ride_time",
+                      "start_region", "start_time", "idx", "route_id"]
+    label = "business_district"
+  elif biz_or_hub == 1:
     data = data[data.end_region != -1]
+    training_attrs = ["current_region", "day_of_week",
+                      "end_region", "heading", "previous_region", "ride_time",
+                      "start_region", "start_time", "idx", "route_id"]
+    label = "end_region"
 
-  # Get rid of unwanted attributes
-  data = data[[i for i in data.columns if i in ['current_region',
-                                                'business district',
-                                                'previous_region',
-                                                'start_region',
-                                                'end_region',
-                                                'start_times_bins',
-                                                'weekend_or_weekday_bins',
-                                                'ride_time_bins',
-                                                'heading_bins']]]
+  # Keep only training attrs.
+  data = data[[i for i in data.columns if i in training_attrs]]
+
+  # Categorize vars.
+  data = categorize_variables(data)
 
   # Split data into attributes and labels.
-  X, y = data[[i for i in data.columns if i != 'end_region']], data['end_region']
+  X = data[[i for i in data.columns if i != label]]
+  y = data[[label, "route_id", "idx"]]
 
-  # Binarize X.
+  # Binarize categorical data.
   X = binarize_features(X)
+  y = binarize_features(y)
 
-  # Binarize Y.
-  lb = preprocessing.LabelBinarizer()
-  lb.fit(y)
-  y = lb.transform(y)
+  # Split into test/train by route id.
+  all_routes = list(data.route_id.unique())
+  test_routes = np.random.choice(all_routes, size=holdout_routes, replace=False)
+  train_routes = list(set(all_routes).difference(set(test_routes)))
 
-  # Split into test/train.
-  X_train, X_test, y_train, y_test = train_test_split(X, y,
-                                                      test_size=test_percentage,
-                                                      random_state=0)
+  # Subset data by test/train.
+  X_train = X.loc[X.route_id.isin(train_routes)]
+  X_test = X.loc[X.route_id.isin(test_routes)]
+  y_train = y.loc[y.route_id.isin(train_routes)]
+  y_test = y.loc[y.route_id.isin(test_routes)]
 
   return X_train, y_train, X_test, y_test
 
@@ -174,11 +182,8 @@ def preprocess(dataframe):
     y_test: label for testing
   """
 
-  # Handcraft categories from continuous attributes.
-  dataframe = categorize_variables(dataframe)
-
   # Split data into test/train.
-  X_train, y_train, X_test, y_test = trim_and_split_data(dataframe, 0.1)
+  X_train, y_train, X_test, y_test = trim_and_split_data(dataframe, 1, 0)
 
   # Return
   return X_train, y_train, X_test, y_test
