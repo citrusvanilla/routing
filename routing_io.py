@@ -34,6 +34,7 @@ from shapely.geometry import Point
 
 
 routes_directory = os.path.join(os.getcwd(), "routes")
+pickled_data_path = os.path.join(os.getcwd(),"data", "data.pkl")
 
 hubs_shp_file = os.path.join(os.getcwd(), "data", "hubs.shp")
 system_shp_file = os.path.join(os.getcwd(), "data", "system.shp")
@@ -163,6 +164,7 @@ def gpx2df(gpx_file, hubs, business_district, system):
   ET.register_namespace("", "http://www.topografix.com/GPX/1/0")
   gpx_path = os.path.join(os.getcwd(), "routes", gpx_file)
   tree = ET.parse(gpx_path)
+  namespace = "{http://www.topografix.com/GPX/1/0}"
 
   # Store the root of the XML tree.
   root = tree.getroot()
@@ -197,26 +199,35 @@ def gpx2df(gpx_file, hubs, business_district, system):
   maxlat = root[1].get('maxlat')
   maxlon = root[1].get('maxlon')
 
-  # Get the track segment from the root.
-  track_segment = root[2][0]
+  # Get the track(s) from the root.
+  trks = root.findall(namespace + "trk")
+  #track_segment = root[2][0]
 
   # Init df to hold cleaned data.
   ride_df = pd.DataFrame()
   crs = {'init': 'epsg:4326'}
 
-  # Get start hub and end hub.
-  start_region = get_region((float(track_segment[0].get('lat')),
-                             float(track_segment[0].get('lon'))),
+  # Get start hub from first track.
+  start_region = get_region((float(trks[0][0][0].get('lat')),
+                             float(trks[0][0][0].get('lon'))),
                             hubs, crs)
 
-  end_region = get_region((float(track_segment[len(track_segment)-1].get('lat')),
-                           float(track_segment[len(track_segment)-1].get('lon'))),
-                          hubs, crs)
+  # Get end hub from last track.
+  end_region = get_region(
+             (float(trks[len(trks)-1][0][len(trks[len(trks)-1][0])-1].get('lat')),
+              float(trks[len(trks)-1][0][len(trks[len(trks)-1][0])-1].get('lon'))),
+              hubs, crs)
 
-  # Get business district.
-  business_district = get_region((float(track_segment[len(track_segment)-1].get('lat')),
-                                  float(track_segment[len(track_segment)-1].get('lon'))),
-                                  business_district, crs)
+  # Get end business district from last track.
+  end_business_district = get_region(
+          (float(trks[len(trks)-1][0][len(trks[len(trks)-1][0])-1].get('lat')),
+           float(trks[len(trks)-1][0][len(trks[len(trks)-1][0])-1].get('lon'))),
+           business_district, crs)
+
+  # Combine the breadcrumbs from multi-segment trips into one segment.
+  breadcrumbs = []
+  for track in trks:
+    breadcrumbs += track[0].findall(namespace + "trkpt")
 
   # Init counters and pointers.
   previous_time_region = None
@@ -226,7 +237,7 @@ def gpx2df(gpx_file, hubs, business_district, system):
   prev_pts = (None, None)
 
   # Loop through all points in the track segment.
-  for count, breadcrumb in enumerate(track_segment):
+  for count, breadcrumb in enumerate(breadcrumbs):
 
     # Get lat and long attributes.
     lat = float(breadcrumb.get('lat'))
@@ -235,9 +246,10 @@ def gpx2df(gpx_file, hubs, business_district, system):
     # Get type.
     ride_type = breadcrumb[0].text
 
-    # Get current region.
+    # Get current region and current business district.
     bc_pts = (lat, lon)
     current_region = get_region(bc_pts, system, crs)
+    current_bizdist = get_region(bc_pts, business_district, crs)
 
     # Update previous region only if it is different.
     if current_region != previous_time_region:
@@ -258,13 +270,14 @@ def gpx2df(gpx_file, hubs, business_district, system):
                               gpx_file, route_id, start_time, weekday,
                               start_region, end_region, count,
                               previous_physical_region, current_region, heading,
-                              displacement, business_district],
+                              displacement, end_business_district, current_bizdist],
                         index=['lat', 'lon', 'ride_type', 'datetime_raw',
                                'minlat', 'minlon', 'maxlat', 'maxlon',
                                'gpx_file', 'route_id', 'start_time',
                                'day_of_week', 'start_region', 'end_region',
                                'ride_time', 'previous_region', 'current_region',
-                               'heading', 'displacement', 'business_district'])
+                               'heading', 'displacement', 'end_business_district',
+                               'current_bizdist'])
 
     # Append Ride to Dataframe.
     ride_df = ride_df.append(pseries, ignore_index=True)
@@ -319,7 +332,7 @@ def build_X(routes_dir):
   X['idx'] = range(0, len(X))
 
   # Pickle the result.
-  X.to_pickle('rawdata.pkl')
+  X.to_pickle(pickled_data_path)
 
   return
 

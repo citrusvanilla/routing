@@ -106,7 +106,7 @@ def binarize_features(dataframe):
   return out_df
 
 
-def trim_and_split_data(data, holdout_routes, biz_or_hub=0):
+def trim_and_split_data(data, holdout_route, biz_or_hub=0):
   """Randomly shuffle the sample set.
 
   Args:
@@ -124,11 +124,11 @@ def trim_and_split_data(data, holdout_routes, biz_or_hub=0):
 
   # Trim data
   if biz_or_hub == 0:
-    data = data[data.business_district != -1]
-    training_attrs = ["business_district", "current_region", "day_of_week",
+    data = data[data.end_business_district != -1]
+    training_attrs = ["end_business_district", "current_region", "day_of_week",
                       "heading", "previous_region", "ride_time",
                       "start_region", "start_time", "idx", "route_id"]
-    label = "business_district"
+    label = "end_business_district"
   elif biz_or_hub == 1:
     data = data[data.end_region != -1]
     training_attrs = ["current_region", "day_of_week",
@@ -152,7 +152,8 @@ def trim_and_split_data(data, holdout_routes, biz_or_hub=0):
 
   # Split into test/train by route id.
   all_routes = list(data.route_id.unique())
-  test_routes = np.random.choice(all_routes, size=holdout_routes, replace=False)
+  #test_routes = np.random.choice(all_routes, size=holdout_routes, replace=False)
+  test_routes = [holdout_route]
   train_routes = list(set(all_routes).difference(set(test_routes)))
 
   # Subset data by test/train.
@@ -167,7 +168,7 @@ def trim_and_split_data(data, holdout_routes, biz_or_hub=0):
 ## ====================================================================
 
 
-def preprocess(dataframe):
+def preprocess(route_id_to_predict, dataframe):
   """
   Preprocesses raw datframe of GPX breadcrumbs into cluster-friendly
   formatting.
@@ -183,7 +184,8 @@ def preprocess(dataframe):
   """
 
   # Split data into test/train.
-  X_train, y_train, X_test, y_test = trim_and_split_data(dataframe, 1, 0)
+  X_train, y_train, X_test, y_test = trim_and_split_data(dataframe,
+                                                         route_id_to_predict, 0)
 
   # Return
   return X_train, y_train, X_test, y_test
