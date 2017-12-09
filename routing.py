@@ -32,6 +32,7 @@ from sklearn.neighbors import KNeighborsClassifier
 import routing_io
 import routing_preprocessing
 import routing_output
+import routing_metrics
 
 
 ## ====================================================================
@@ -185,9 +186,11 @@ def main(argv):
   # Predict destination for the route.
   df_route = predict(route_id, data)
 
+  # Get metrics.  Print out.
+  df_route, inroute_acc, final_acc = routing_metrics.get_metrics(df_route, data)
+
   # Write out GPX and log.
-  routing_output.write_gpx(df_route)
-  routing_output.write_log(df_route)
+  routing_output.output(df_route, prediction_directory)
 
 
 if __name__ == "__main__":
