@@ -135,7 +135,7 @@ def get_inroute_accuracy(route_dataframe):
   # Return an accuracy score.
   accuracy = round(inroute_accuracy.sum()/len(inroute_accuracy), 2)
   print("In-route accuracy for route ", str(int(route_dataframe.route_id[0])),
-        ": ", accuracy, "%.", sep="")
+        ": ", accuracy*100, "%.", sep="")
 
   return accuracy
 
@@ -179,7 +179,7 @@ def get_final_dest_accuracy(route_dataframe):
                    len(final_destination_accuracy), 2)
   print("Final destination accuracy for route ",
         str(int(route_dataframe.route_id[0])),
-        ": ", accuracy, "%.", sep="")
+        ": ", accuracy*100, "%.", sep="")
 
   return
 

@@ -47,8 +47,8 @@ hubs = {-1: "None",
 business_districts = {-1: "None",
                       0: "The Ferry",
                       1: "Downtown",
-                      2: "The Light Rail",
-                      3: "Uptown & The Pier"}
+                      2: "Uptown & The Pier",
+                      3: "The Light Rail"}
 
 
 ## ====================================================================
@@ -276,7 +276,7 @@ def write_csv(dataframe, directory):
                      str(round(len(dataframe)*30/60,1)) + " minutes"])
     writer.writerow(["Start hub", dataframe.start_region[0]])
     writer.writerow(["End hub", dataframe.end_region[0]])
-    writer.writerow(["Final destination", dataframe.start_region[0]])
+    writer.writerow(["Final destination", dataframe.end_business_district[0]])
     writer.writerow(["In-route accuracy", inroute_accuracy])
     writer.writerow(["Final destination accuracy", finaldest_accuracy])
     writer.writerow([])
