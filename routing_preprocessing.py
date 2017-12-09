@@ -19,7 +19,6 @@ Usage:
 """
 
 # Load libraries
-import numpy as np
 import pandas as pd
 
 
@@ -106,6 +105,28 @@ def binarize_features(dataframe):
   return out_df
 
 
+def remove_excess(dataframe):
+  """
+  Remove breadcrumbs that do not contribute to learning.
+  """
+
+  # Subset breadcrumbs that are not starts of rides.
+  bad_crumbs = dataframe[dataframe.route_id ==
+                         dataframe.shift(periods=1).route_id]
+
+  # Subset breadcrumbs in which rider did not move from current region.
+  bad_crumbs = bad_crumbs[bad_crumbs.current_region ==
+                          bad_crumbs.shift(periods=1).current_region]
+
+  # Subset crumbs in which the GPS position did not appreciably change.
+  bad_crumbs = bad_crumbs[bad_crumbs.displacement <= 30]
+
+  # Drop all the bad crumbs from the Dataframe view.
+  clean_dataframe = dataframe.drop(bad_crumbs.index)
+
+  return clean_dataframe
+
+
 def trim_and_split_data(data, holdout_route, biz_or_hub=0):
   """Randomly shuffle the sample set.
 
@@ -122,41 +143,49 @@ def trim_and_split_data(data, holdout_route, biz_or_hub=0):
     y_test: labels for testing
   """
 
+  # Split into test/train by route id.
+  all_routes = list(data.route_id.unique())
+  test_routes = [holdout_route]
+  train_routes = list(set(all_routes).difference(set(test_routes)))
+
+  testing_data = data.loc[data.route_id.isin(test_routes)]
+  training_data = data.loc[data.route_id.isin(train_routes)]
+
+  # Clean out training data.
+  training_data = remove_excess(training_data)
+
+  # Combine views again for further processing.
+  data_comb = data.loc[list(testing_data.index) + list(training_data.index)]
+
   # Trim data
   if biz_or_hub == 0:
-    data = data[data.end_business_district != -1]
+    data_comb = data_comb[data_comb.end_business_district != -1]
     training_attrs = ["end_business_district", "current_region", "day_of_week",
                       "heading", "previous_region", "ride_time",
                       "start_region", "start_time", "idx", "route_id"]
     label = "end_business_district"
   elif biz_or_hub == 1:
-    data = data[data.end_region != -1]
+    data_comb = data_comb[data_comb.end_region != -1]
     training_attrs = ["current_region", "day_of_week",
                       "end_region", "heading", "previous_region", "ride_time",
                       "start_region", "start_time", "idx", "route_id"]
     label = "end_region"
 
   # Keep only training attrs.
-  data = data[[i for i in data.columns if i in training_attrs]]
+  data_comb = data_comb[[i for i in data_comb.columns if i in training_attrs]]
 
   # Categorize vars.
-  data = categorize_variables(data)
+  data_comb = categorize_variables(data_comb)
 
-  # Split data into attributes and labels.
-  X = data[[i for i in data.columns if i != label]]
-  y = data[[label, "route_id", "idx"]]
+  # Split data into X, y.
+  X = data_comb[[i for i in data_comb.columns if i != label]]
+  y = data_comb[[label, "route_id", "idx"]]
 
   # Binarize categorical data.
   X = binarize_features(X)
   y = binarize_features(y)
 
-  # Split into test/train by route id.
-  all_routes = list(data.route_id.unique())
-  #test_routes = np.random.choice(all_routes, size=holdout_routes, replace=False)
-  test_routes = [holdout_route]
-  train_routes = list(set(all_routes).difference(set(test_routes)))
-
-  # Subset data by test/train.
+  # Split test/train.
   X_train = X.loc[X.route_id.isin(train_routes)]
   X_test = X.loc[X.route_id.isin(test_routes)]
   y_train = y.loc[y.route_id.isin(train_routes)]
@@ -186,6 +215,8 @@ def preprocess(route_id_to_predict, dataframe):
   # Split data into test/train.
   X_train, y_train, X_test, y_test = trim_and_split_data(dataframe,
                                                          route_id_to_predict, 0)
+
+
 
   # Return
   return X_train, y_train, X_test, y_test
