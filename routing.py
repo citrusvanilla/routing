@@ -83,7 +83,7 @@ def train(X_train, y_train):
   print("Training a classifier...")
   start_time = time.time()
 
-  classifier = KNeighborsClassifier(n_neighbors=7)
+  classifier = KNeighborsClassifier(n_neighbors=10)
   classifier.fit(X_train[[i for i in X_train.columns
                           if i not in ["idx", "route_id"]]],
                  y_train[[i for i in y_train.columns

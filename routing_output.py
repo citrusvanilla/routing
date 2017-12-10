@@ -138,29 +138,29 @@ def build_gpx_tree(dataframe):
     # Init a trkpt element.
     gpx_trkpt = ET.Element(tag="trkpt", attrib={"lat": str(breadcrumb.lat),
                                                 "lon": str(breadcrumb.lon)})
-    # 'Ride type' subelement.
+    # "Ride type" subelement.
     gpx_type = ET.Element(tag="type")
     gpx_type.text = breadcrumb.ride_type
 
-    # 'Current Location' subelement.
+    # "Current Location" subelement.
     hc_curr_loc = ET.Element(tag="current_loc")
     if breadcrumb.current_region is None:
       hc_curr_loc.text = "None"
     else:
       hc_curr_loc.text = str(int(breadcrumb.current_region))
 
-    # 'Current Business District' subelement
+    # "Current Business District" subelement
     hc_bizdist = ET.Element(tag="current_bizdist")
     hc_bizdist.text = str(int(breadcrumb.current_bizdist))
 
-    # 'Previous Location' subelement.
+    # "Previous Location" subelement.
     hc_prev_loc = ET.Element(tag="previous_loc")
     if breadcrumb.previous_region is None:
       hc_prev_loc.text = "None"
     else:
       hc_prev_loc.text = str(int(breadcrumb.previous_region))
 
-    # 'Heading' subelement.
+    # "Heading" subelement.
     hc_heading = ET.Element(tag="heading")
     if isinstance(breadcrumb.heading_bins, float) and \
        np.isnan(breadcrumb.heading_bins):
@@ -168,18 +168,18 @@ def build_gpx_tree(dataframe):
     else:
       hc_heading.text = breadcrumb.heading_bins
 
-    # 'Ride Time' subelement.
+    # "Ride Time" subelement.
     hc_ride_time = ET.Element(tag="ride_time")
     hc_ride_time.text = breadcrumb.ride_time_bins
 
-    # 'Predicted Destination' subelement.
+    # "Predicted Destination" subelement.
     hc_predicted_dest = ET.Element(tag="predicted_dest")
     if isinstance(breadcrumb.predicted_dest, str):
       hc_predicted_dest.text = "Tie"
     else:
       hc_predicted_dest.text = str(int(breadcrumb.predicted_dest))
 
-    # 'Potential Destination' percentages subelement.
+    # "Potential Destination" percentages subelement.
     destination_percentages_dic = {}
 
     for idx, idxdata in breadcrumb.iteritems():
@@ -236,29 +236,42 @@ def write_gpx(elementtree, directory):
 def write_csv(dataframe, directory):
   """
   """
-  # Convert Columns to names.
+  # Convert column vales to names.
   dataframe.end_business_district = dataframe.end_business_district.astype(int)
-  dataframe = dataframe.replace({"end_business_district": business_districts})
-
   dataframe.current_bizdist = dataframe.current_bizdist.astype(int)
-  dataframe = dataframe.replace({"current_bizdist": business_districts})
-
   dataframe.end_region = dataframe.end_region.astype(int)
-  dataframe = dataframe.replace({"end_region": hubs})
-
   dataframe.start_region = dataframe.start_region.astype(int)
-  dataframe = dataframe.replace({"start_region": hubs})
-
   dataframe.predicted_dest = dataframe.predicted_dest.astype(int)
+
+  dataframe = dataframe.replace({"end_business_district": business_districts})
+  dataframe = dataframe.replace({"current_bizdist": business_districts})
+  dataframe = dataframe.replace({"end_region": hubs})
+  dataframe = dataframe.replace({"start_region": hubs})
   dataframe = dataframe.replace({"predicted_dest": business_districts})
 
-  out_path = os.path.join(directory, "route_log.csv")
-  out_cols = ['current_bizdist', 'current_region', 'displacement', 'lat', 'lon',
-              'previous_region', 'idx', 'predicted_dest', 'dest_0_perc',
-              'dest_1_perc', 'dest_2_perc', 'dest_3_perc', 'heading_bins',
-              'inroute_accuracy', 'final_destination_accuracy']
-  
-  # Some metrics.
+  dataframe.displacement = dataframe.displacement .round(1)
+
+  # Rename the columns.
+  out_cols = ["lat", "lon", "current_region", "heading_bins",
+              "displacement", "current_bizdist", "predicted_dest",
+              "dest_0_perc", "dest_1_perc", "dest_2_perc", "dest_3_perc"]
+  confidence_cols = {}
+  for i in out_cols:
+    if i.startswith("dest_"):
+      confidence_cols[i] = "Confidence in " + \
+                    business_districts[int(re.search("[0-9]+", i).group(0))]
+  out_df = dataframe[[i for i in out_cols]]
+  out_df = out_df.rename(index=str,
+                         columns={"lat": "Lattitude",
+                                 "lon": "Longitude",
+                                 "current_region": "Current System Area",
+                                 "heading_bins": "Current Heading",
+                                 "displacement": "Movement Since Last Update (meters)",
+                                 "current_bizdist": "Current Destination",
+                                 "predicted_dest": "Predicted Final Destination"})
+  out_df = out_df.rename(index=str, columns=confidence_cols)
+
+  # Get some metrics.
   inroute_accuracy = round(dataframe.inroute_accuracy.sum()/
                            len(dataframe.inroute_accuracy), 2)
 
@@ -266,12 +279,15 @@ def write_csv(dataframe, directory):
   finaldest_accuracy = round(dataframe.final_destination_accuracy.sum()/
                              len(dataframe.final_destination_accuracy), 2)
 
-
-  with open(out_path, 'wb') as f:
-    writer = csv.writer(f, delimiter=',')
+  # Write out.
+  out_path = os.path.join(directory, "route_log.csv")
+  with open(out_path, "wb") as f:
+    writer = csv.writer(f, delimiter=",")
     writer.writerow(["Time of Report", str(datetime.now())])
     writer.writerow(["Route ID", dataframe.route_id[0]])
     writer.writerow(["Time of Ride Start", dataframe.datetime_raw[0]])
+    writer.writerow(["Weekday or Weekend", dataframe.weekend_or_weekday_bins[0]])
+    writer.writerow(["Time of Day", dataframe.start_times_bins[0]])
     writer.writerow(["Total Ride Time",
                      str(round(len(dataframe)*30/60,1)) + " minutes"])
     writer.writerow(["Start hub", dataframe.start_region[0]])
@@ -282,8 +298,8 @@ def write_csv(dataframe, directory):
     writer.writerow([])
     writer.writerow([])
 
-  with open(out_path, 'a') as f:
-    dataframe[[i for i in out_cols]].to_csv(f, header=True)
+  with open(out_path, "a") as f:
+    out_df.to_csv(f, header=True)
 
   f.close()
 

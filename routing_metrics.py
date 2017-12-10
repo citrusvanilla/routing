@@ -71,9 +71,9 @@ def break_ties(route_dataframe):
 
     # If there are ties and one of the destinations in the tie was the
     # previous breadcrumbs prediction, make it the current prediction as well.
-    if (len(max_destinations) > 1) and \
-       (i>0) and \
-       (route_dataframe.get_value(i-1, 'predicted_dest') in max_destinations):
+    if len(max_destinations) > 1 and \
+       i > 0 and \
+       route_dataframe.get_value(i-1, 'predicted_dest') in max_destinations:
       
       route_dataframe.set_value(
           i, 'predicted_dest', route_dataframe.get_value(i-1, 'predicted_dest'))
